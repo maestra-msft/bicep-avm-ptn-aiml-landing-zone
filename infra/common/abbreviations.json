@@ -3,7 +3,11 @@
     "aiFoundry": "aif",
     "aiFoundryProject": "aifp",
     "aiSearch": "srch",
-    "bing": "bing"
+    "bing": "bing",
+    "botService": "bot"
+  },
+  "powerPlatform": {
+    "enterprisePolicy": "ppep"
   },
   "configuration": {
     "appConfiguration": "appcs"
@@ -74,5 +78,8 @@
   },
   "storage": {
     "storageAccount": "st"
+  },
+  "analytics": {
+    "fabricCapacity": "fab"
   }
 }

@@ -45,6 +45,13 @@ type ResourceIdsType = {
 
   @description('Optional. Existing Azure Firewall resource ID to reuse.')
   firewallResourceId: string
+
+  @description('Optional. Existing Microsoft Fabric capacity resource ID to reuse; leave empty to create a new capacity.')
+  fabricCapacityResourceId: string
+  @description('Optional. Existing Azure Bot Service resource ID to reuse; leave empty to create a new bot service.')
+  botServiceResourceId: string
+  @description('Optional. Existing Power Platform Enterprise Policy resource ID to reuse; leave empty to create a new enterprise policy.')
+  enterprisePolicyResourceId: string
 }
 
 @export()
@@ -89,6 +96,13 @@ type DeployTogglesType = {
   @description('Required. Toggle to deploy Azure Firewall (true) or not (false).')
   firewall: bool
 
+  @description('Required. Toggle to deploy Microsoft Fabric capacity (true) or not (false).')
+  fabricCapacity: bool
+  @description('Required. Toggle to deploy Azure Bot Service (true) or not (false).')
+  botService: bool
+  @description('Required. Toggle to deploy Power Platform Enterprise Policy (true) or not (false).')
+  enterprisePolicy: bool
+
   @description('Required. Toggle to deploy Container Apps (true) or not (false).')
   containerApps: bool
 
@@ -101,8 +115,82 @@ type DeployTogglesType = {
   @description('Required. Toggle to deploy a new Virtual Network (true) or not (false).')
   virtualNetwork: bool
 
+  @description('Required. Toggle to deploy a secondary Virtual Network (true) or not (false).')
+  secondaryVirtualNetwork: bool
+
   @description('Required. Toggle to deploy an Application Gateway WAF policy (true) or not (false).')
   wafPolicy: bool
+}
+
+@export()
+@description('Configuration object for Microsoft Fabric capacity.')
+type FabricCapacityDefinitionType = {
+  @description('Optional. Fabric capacity name. If empty, a deterministic name is generated.')
+  name: string?
+
+  @description('Required. SKU name for the Fabric capacity (e.g., F2, F4, F8).')
+  skuName: string
+
+  @description('Required. List of Azure AD object IDs to grant as capacity administrators (can be empty).')
+  administrators: string[]
+
+  @description('Optional. Tags to apply to the Fabric capacity.')
+  tags: {
+    @description('Required. Arbitrary key for each tag.')
+    *: string
+  }?
+}
+
+@export()
+@description('Configuration object for Azure Bot Service + optional Entra ID app registration.')
+type BotServiceDefinitionType = {
+  @description('Optional. Bot Service name; if empty a deterministic name is generated.')
+  name: string?
+
+  @description('Required. Bot Service SKU name (F0 or S1).')
+  skuName: string
+
+  @description('Optional. Channels to enable (e.g., MsTeamsChannel).')
+  enabledChannels: string[]?
+
+  @description('Optional. Entra ID application registration settings. If reuseExistingAppId is supplied no new app is created.')
+  appRegistration: {
+    @description('Optional. Display name for the app registration; default derived from bot name.')
+    displayName: string?
+    @description('Optional. Identifier URIs for the app.')
+    identifierUris: string[]?
+    @description('Optional. Web redirect URIs for auth flows.')
+    webRedirectUris: string[]?
+    @description('Optional. Existing Entra application (appId) to reuse; if set skips creation.')
+    reuseExistingAppId: string?
+  }?
+
+  @description('Optional. Tags to apply to the bot service.')
+  tags: {
+    @description('Required. Arbitrary key for each tag.')
+    *: string
+  }?
+}
+
+@export()
+@description('Configuration object for a Power Platform Enterprise Policy (NetworkInjection kind). If virtualNetworks is empty, the primary powerplatform-subnet (and secondary if deployed) are auto-injected.')
+type EnterprisePolicyDefinitionType = {
+  @description('Optional. Enterprise Policy resource name; deterministic name generated if empty.')
+  name: string?
+
+  @description('Optional. List of virtual network bindings. Each entry binds a VNet id to a delegated subnet name. If empty, defaults are inferred.')
+  virtualNetworks: {
+    @description('Required. Virtual Network resource ID.')
+    id: string
+    @description('Required. Subnet name that is delegated to Microsoft.PowerPlatform/enterprisePolicies.')
+    subnetName: string
+  }[]?
+
+  @description('Optional. Tags to apply to the enterprise policy.')
+  tags: {
+    @description('Required. Arbitrary key for each tag.')
+    *: string
+  }?
 }
 
 @export()

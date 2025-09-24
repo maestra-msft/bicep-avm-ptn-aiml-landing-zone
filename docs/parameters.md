@@ -130,6 +130,7 @@
 | `Microsoft.Storage/storageAccounts/queueServices/queues` | [2024-01-01](https://learn.microsoft.com/en-us/azure/templates/Microsoft.Storage/2024-01-01/storageAccounts/queueServices/queues) |
 | `Microsoft.Storage/storageAccounts/tableServices` | [2024-01-01](https://learn.microsoft.com/en-us/azure/templates/Microsoft.Storage/2024-01-01/storageAccounts/tableServices) |
 | `Microsoft.Storage/storageAccounts/tableServices/tables` | [2024-01-01](https://learn.microsoft.com/en-us/azure/templates/Microsoft.Storage/2024-01-01/storageAccounts/tableServices/tables) |
+| `Microsoft.Fabric/capacities` | [2023-11-01](https://learn.microsoft.com/en-us/azure/templates/Microsoft.Fabric/2023-11-01/capacities) |
 
 ## Usage examples
 
@@ -142,6 +143,9 @@ The following section provides usage examples for the module, which were used to
 - [Landing Zone - Share GenAI Backing Services](#example-1-landing-zone---share-genai-backing-services)
 - [Landing Zone - BYO Associated Resources](#example-2-landing-zone---byo-associated-resources)
 - [Landing Zone - Defaults](#example-3-landing-zone---defaults)
+- [Landing Zone - With Fabric Capacity](#example-4-landing-zone---with-fabric-capacity)
+ - [Landing Zone - Dual Virtual Networks](#example-5-landing-zone---dual-virtual-networks)
+ - [Landing Zone - Dual VNets + Enterprise Policy + Fabric + Bot](#example-6-landing-zone---dual-vnets-enterprise-policy-fabric-capacity-bot-service)
 
 ### Example 1: _Landing Zone - Share GenAI Backing Services_
 
@@ -526,6 +530,178 @@ module landingZone 'br/public:avm/ptn/ai-ml/landing-zone:<version>' = {
 </details>
 <p>
 
+### Example 4: _Landing Zone - With Fabric Capacity + Azure Bot Service_
+
+Deploys a Fabric capacity (F4) with two administrators and an Azure Bot Service (F0) wired to an existing Entra ID application (client ID you provide) plus core GenAI backing services. The bot is enabled via the `botService` toggle; you must supply a valid `botServiceAppId` (app registration) after creating it in Entra ID. Channels can be added later (e.g., Teams) by updating `botServiceDefinition.enabledChannels`.
+
+<details>
+
+<summary>via Bicep module + parameters</summary>
+
+```bicep
+module landingZone 'br/public:avm/ptn/ai-ml/landing-zone:<version>' = {
+  name: 'lzWithFabric'
+  params: {
+    baseName: '<baseName>'
+    deployToggles: {
+      logAnalytics: true
+      appInsights: true
+      containerEnv: true
+      containerRegistry: true
+      containerApps: true
+      cosmosDb: true
+      keyVault: true
+      storageAccount: true
+      searchService: true
+      groundingWithBingSearch: true
+      appConfig: true
+      apiManagement: false
+      applicationGateway: false
+      firewall: false
+      fabricCapacity: true
+      botService: true
+      buildVm: false
+      jumpVm: false
+      virtualNetwork: true
+      secondaryVirtualNetwork: false
+      wafPolicy: false
+    }
+    fabricCapacityDefinition: {
+      name: ''            // optional; deterministic name used if empty
+      skuName: 'F4'
+      administrators: [
+        '<aadObjectId1>'
+        '<aadObjectId2>'
+      ]
+      tags: {
+        environment: 'dev'
+        workload: 'fabric'
+      }
+    }
+    // Bot Service (uses provided Entra application client ID)
+    botServiceDefinition: {
+      name: ''            // optional; deterministic name used if empty
+      skuName: 'F0'
+      enabledChannels: [ 'MsTeamsChannel' ]   // optional; omit or adjust as needed
+      tags: { environment: 'dev', workload: 'bot' }
+    }
+    botServiceAppId: '<entra-app-client-id-guid>'
+    botServiceEndpoint: 'https://placeholder.invalid/'
+    vnetDefinition: {
+      addressSpace: '192.168.0.0/16'
+      subnets: [
+        { enabled: true, name: 'default-subnet', addressPrefix: '192.168.1.0/24' }
+      ]
+    }
+  }
+}
+```
+
+</details>
+<p>
+
+### Example 5: _Landing Zone - Dual Virtual Networks_
+
+Deploys both a primary and a secondary VNet with non-overlapping address spaces and essential subnets.
+
+<details>
+
+<summary>via Bicep module</summary>
+
+```bicep
+module landingZone 'br/public:avm/ptn/ai-ml/landing-zone:<version>' = {
+  name: 'lzDualVnets'
+  params: {
+    baseName: '<baseName>'
+    deployToggles: {
+      logAnalytics: true
+      appInsights: true
+      containerEnv: true
+      containerRegistry: true
+      containerApps: true
+      cosmosDb: true
+      keyVault: true
+      storageAccount: true
+      searchService: true
+      groundingWithBingSearch: true
+      appConfig: true
+      apiManagement: false
+      applicationGateway: false
+      firewall: false
+      fabricCapacity: false
+      buildVm: false
+      jumpVm: false
+      virtualNetwork: true
+      secondaryVirtualNetwork: true
+      wafPolicy: false
+    }
+    vnetDefinition: {
+      addressSpace: '192.168.0.0/16'
+      subnets: [
+        { enabled: true, name: 'agent-subnet', addressPrefix: '192.168.0.0/24', delegation: 'Microsoft.app/environments' }
+        { enabled: true, name: 'pe-subnet', addressPrefix: '192.168.1.0/24', privateEndpointNetworkPolicies: 'Disabled' }
+        { enabled: true, name: 'powerplatform-subnet', addressPrefix: '192.168.5.0/24' }
+        { enabled: true, name: 'powerbi-subnet', addressPrefix: '192.168.6.0/24' }
+        { enabled: true, name: 'dataingestion-subnet', addressPrefix: '192.168.7.0/24' }
+      ]
+      tags: { networkRole: 'primary' }
+    }
+    secondaryVnetDefinition: {
+      addressSpace: '192.169.0.0/16'
+      subnets: [
+        { enabled: true, name: 'agent-subnet', addressPrefix: '192.169.0.0/24', delegation: 'Microsoft.app/environments' }
+        { enabled: true, name: 'pe-subnet', addressPrefix: '192.169.1.0/24', privateEndpointNetworkPolicies: 'Disabled' }
+        { enabled: true, name: 'powerplatform-subnet', addressPrefix: '192.169.5.0/24' }
+        { enabled: true, name: 'powerbi-subnet', addressPrefix: '192.169.6.0/24' }
+        { enabled: true, name: 'dataingestion-subnet', addressPrefix: '192.169.7.0/24' }
+      ]
+      tags: { networkRole: 'secondary' }
+    }
+  }
+}
+```
+
+</details>
+<p>
+
+## Dual Virtual Networks Rationale
+
+Use a secondary Virtual Network when one or more of these drivers apply:
+
+1. Power Platform & Copilot Studio VNet integration: Provide a governed network zone for Power Platform scenarios (e.g., data gateway placement, secure outbound to private data sources, isolation for custom connectors, AI Builder / Copilot Studio access to internal APIs) without broadening trust or egress from the core shared services VNet; enables tighter NSG, private endpoint, and DLP alignment while still allowing controlled peering or service-to-service traffic.
+2. Workload / trust boundary isolation: Segregate platform / shared services (primary) from tenant, experimentation, partner, or higher-risk workloads (secondary) to tighten NSG / firewall rules and blast-radius limits.
+3. Address space governance: Preserve contiguous growth room in the primary VNet (e.g., 192.168.0.0/16) while allocating a distinct, non-overlapping CIDR (e.g., 192.169.0.0/16) for future expansion, M&A integration, or lab capacity without renumbering.
+4. Lifecycle separation: Allow independent deployment, teardown, blue/green style refresh, or DR drills on the secondary network without destabilizing core services.
+5. Regulatory / data residency partitioning: Host data ingestion or regulated processing tiers in a separately governed environment with targeted policies, while shared AI / app services remain in the primary.
+6. Performance & routing segmentation: Reduce route table / UDR churn or asymmetric routing risks by isolating high-change or high-throughput subnets (e.g., ingestion, build agents) away from latency‑sensitive application subnets.
+7. Gradual adoption of new controls: Introduce new firewall policies, private DNS arrangements, or Zero Trust segmentation in the secondary VNet before promoting patterns to the primary.
+
+### Address Space Guidance
+- Ensure strict non-overlap across: primary VNet, secondary VNet, any hub/spoke peers, on-premises ranges, and potential future VNets.
+- Favor adjacent but distinct /16 ranges for simplicity (example used: 192.168.0.0/16 primary, 192.169.0.0/16 secondary). Alternatively consider RFC1918 blocks avoiding collision with corporate WAN (e.g., 10.200.0.0/16 + 10.201.0.0/16) if 192.168.0.0/16 is already broadly consumed.
+- Reserve contiguous room inside each /16 for future subnet growth (leave gaps, e.g., skip 192.169.8.0/24 onward until capacity planning dictates use).
+
+### Design Considerations
+- Peering: If later peering both VNets to a hub, ensure hub route/connection limits (e.g., Azure Firewall, VPN/ER gateways) are not exceeded.
+- Name Determinism: Secondary VNet name defaults to `<abbr>-<baseName>-sec`; override via `secondaryVnetDefinition.name` if alignment with existing naming standards required.
+- Shared Services: Decide which services (e.g., Container Apps Environment, Key Vault) deploy only once vs duplicated; keep cross‑VNet private DNS & private endpoint alignment consistent.
+- Cost & Ops: A second VNet can imply duplicate NAT, Bastion, firewall, or monitoring resources if isolation boundaries demand it—toggle only what is needed.
+- Security Posture: Use distinct NSGs and (optionally) separate firewall policies to enforce tier policies (ingress egress filters) without expanding rule sets in the primary.
+
+### When NOT to Add a Secondary VNet
+- If isolation needs are satisfied by subnet segregation + NSGs + Azure Firewall policies inside one VNet.
+- If address space pressure can be solved by resizing or reorganizing existing subnets.
+- If operational overhead outweighs marginal isolation benefit (small environments, PoC phases).
+
+### Quick Checklist Before Enabling
+- [ ] Confirm non-overlapping CIDR with all existing & planned networks
+- [ ] Identify which subnets must exist in both VNets vs primary only
+- [ ] Decide on any peering / routing (not configured by default here)
+- [ ] Validate DNS resolution paths (Private DNS zone links if required)
+- [ ] Update monitoring/telemetry scoping (LAW / metrics) if segmentation impacts collection
+
+This rationale section complements the example above; remove or trim for downstream consumers if minimal documentation is preferred.
+
 <details>
 
 <summary>via JSON parameters file</summary>
@@ -622,6 +798,364 @@ param jumpVmAdminPassword = '<StrongP@ssw0rd!>'
 </details>
 <p>
 
+### Example 6: _Landing Zone - Dual VNets + Enterprise Policy + Fabric Capacity + Bot Service_
+
+Deploys both primary and secondary Virtual Networks (each with a `powerplatform-subnet`), a Power Platform Enterprise Policy (kind `NetworkInjection`) using subnet inference (empty `virtualNetworks` array), a Microsoft Fabric capacity, and an Azure Bot Service bound to an existing Entra application. Core GenAI backing services are also deployed for sharing with AI Foundry. This showcases combined networking + governance + collaboration capabilities.
+
+Key points:
+
+1. Enterprise Policy subnet inference: leaving `enterprisePolicyDefinition.virtualNetworks: []` causes the template to automatically target the `powerplatform-subnet` in each deployed VNet (primary + secondary) if present.
+2. Explicit override: you can alternatively supply an explicit `virtualNetworks` array (see commented example) to control subnet names or limit injection to a subset of VNets.
+3. Ensure provider registration: `Microsoft.PowerPlatform` must be registered in the subscription before deployment.
+4. Subnet readiness: The `powerplatform-subnet` must exist (no delegation required) in each VNet you want injected.
+
+<details>
+
+<summary>via Bicep module + parameters</summary>
+
+```bicep
+module landingZone 'br/public:avm/ptn/ai-ml/landing-zone:<version>' = {
+  name: 'lzDualVnetsEnterprisePolicyFabricBot'
+  params: {
+    baseName: '<baseName>'
+    deployToggles: {
+      logAnalytics: true
+      appInsights: true
+      containerEnv: true
+      containerRegistry: true
+      containerApps: true
+      cosmosDb: true
+      keyVault: true
+      storageAccount: true
+      searchService: true
+      groundingWithBingSearch: true
+      appConfig: true
+      apiManagement: false
+      applicationGateway: false
+      firewall: false
+      fabricCapacity: true
+      botService: true
+      buildVm: false
+      jumpVm: false
+      virtualNetwork: true
+      secondaryVirtualNetwork: true
+      enterprisePolicy: true
+      wafPolicy: false
+    }
+    fabricCapacityDefinition: {
+      name: ''              // optional; deterministic name used if empty
+      skuName: 'F4'
+      administrators: [ '<aadObjectId1>' '<aadObjectId2>' ]
+      tags: { environment: 'dev', workload: 'fabric' }
+    }
+    botServiceDefinition: {
+      name: ''              // optional; deterministic name used if empty
+      skuName: 'F0'
+      enabledChannels: [ 'MsTeamsChannel' ]
+      tags: { environment: 'dev', workload: 'bot' }
+    }
+    botServiceAppId: '<entra-app-client-id-guid>'
+    botServiceEndpoint: 'https://placeholder.invalid/'
+    // Inference mode: empty array -> auto-detect primary + secondary powerplatform-subnet
+    enterprisePolicyDefinition: {
+      name: ''
+      virtualNetworks: []
+      tags: { environment: 'dev', workload: 'powerplatform' }
+      // Explicit override example (uncomment to use instead of inference):
+      // virtualNetworks: [
+      //   {
+      //     id: resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', toLower(baseName)))
+      //     subnetName: 'powerplatform-subnet'
+      //   }
+      //   {
+      //     id: resourceId('Microsoft.Network/virtualNetworks', format('{0}-sec-vnet', toLower(baseName)))
+      //     subnetName: 'powerplatform-subnet'
+      //   }
+      // ]
+    }
+    vnetDefinition: {
+      addressSpace: '192.168.0.0/16'
+      subnets: [
+        { enabled: true, name: 'agent-subnet', addressPrefix: '192.168.0.0/24', delegation: 'Microsoft.app/environments' }
+        { enabled: true, name: 'pe-subnet', addressPrefix: '192.168.1.0/24', privateEndpointNetworkPolicies: 'Disabled' }
+        { enabled: true, name: 'powerplatform-subnet', addressPrefix: '192.168.5.0/24' }
+        { enabled: true, name: 'dataingestion-subnet', addressPrefix: '192.168.7.0/24' }
+      ]
+      tags: { networkRole: 'primary' }
+    }
+    secondaryVnetDefinition: {
+      addressSpace: '192.169.0.0/16'
+      subnets: [
+        { enabled: true, name: 'agent-subnet', addressPrefix: '192.169.0.0/24', delegation: 'Microsoft.app/environments' }
+        { enabled: true, name: 'pe-subnet', addressPrefix: '192.169.1.0/24', privateEndpointNetworkPolicies: 'Disabled' }
+        { enabled: true, name: 'powerplatform-subnet', addressPrefix: '192.169.5.0/24' }
+        { enabled: true, name: 'dataingestion-subnet', addressPrefix: '192.169.7.0/24' }
+      ]
+      tags: { networkRole: 'secondary' }
+    }
+    aiFoundryDefinition: {
+      aiModelDeployments: [
+        {
+          model: {
+            format: 'OpenAI'
+            name: 'gpt-4o'
+            version: '2024-11-20'
+          }
+          name: 'gpt-4o'
+          scale: {
+            capacity: 1
+            family: ''
+            size: ''
+            tier: ''
+            type: 'Standard'
+          }
+        }
+      ]
+      aiProjects: []
+      aiSearchConfiguration: {}
+      cosmosDbConfiguration: {}
+      includeAssociatedResources: true
+      keyVaultConfiguration: {}
+      lock: { kind: 'None', name: '' }
+      storageAccountConfiguration: {}
+    }
+    jumpVmAdminPassword: '<StrongP@ssw0rd!>'
+  }
+}
+```
+
+</details>
+<p>
+
+> Note: If you reuse an existing Enterprise Policy instead of creating one, set `resourceIds.enterprisePolicyResourceId` and either omit `enterprisePolicyDefinition` or set its toggle off.
+
+<details>
+
+<summary>via JSON parameters file</summary>
+
+```json
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "baseName": { "value": "<baseName>" },
+    "deployToggles": {
+      "value": {
+        "logAnalytics": true,
+        "appInsights": true,
+        "containerEnv": true,
+        "containerRegistry": true,
+        "containerApps": true,
+        "cosmosDb": true,
+        "keyVault": true,
+        "storageAccount": true,
+        "searchService": true,
+        "groundingWithBingSearch": true,
+        "appConfig": true,
+        "apiManagement": false,
+        "applicationGateway": false,
+        "firewall": false,
+        "fabricCapacity": true,
+        "botService": true,
+        "buildVm": false,
+        "jumpVm": false,
+        "virtualNetwork": true,
+        "secondaryVirtualNetwork": true,
+        "enterprisePolicy": true,
+        "wafPolicy": false
+      }
+    },
+    "fabricCapacityDefinition": {
+      "value": {
+        "name": "",
+        "skuName": "F4",
+        "administrators": [ "<aadObjectId1>", "<aadObjectId2>" ],
+        "tags": { "environment": "dev", "workload": "fabric" }
+      }
+    },
+    "botServiceDefinition": {
+      "value": {
+        "name": "",
+        "skuName": "F0",
+        "enabledChannels": [ "MsTeamsChannel" ],
+        "tags": { "environment": "dev", "workload": "bot" }
+      }
+    },
+    "botServiceAppId": { "value": "<entra-app-client-id-guid>" },
+    "botServiceEndpoint": { "value": "https://placeholder.invalid/" },
+    "enterprisePolicyDefinition": {
+      "value": {
+        "name": "",
+        "virtualNetworks": [],
+        "tags": { "environment": "dev", "workload": "powerplatform" }
+      }
+    },
+    "vnetDefinition": {
+      "value": {
+        "addressSpace": "192.168.0.0/16",
+        "subnets": [
+          { "enabled": true, "name": "agent-subnet", "addressPrefix": "192.168.0.0/24", "delegation": "Microsoft.app/environments" },
+          { "enabled": true, "name": "pe-subnet", "addressPrefix": "192.168.1.0/24", "privateEndpointNetworkPolicies": "Disabled" },
+          { "enabled": true, "name": "powerplatform-subnet", "addressPrefix": "192.168.5.0/24" },
+          { "enabled": true, "name": "dataingestion-subnet", "addressPrefix": "192.168.7.0/24" }
+        ],
+        "tags": { "networkRole": "primary" }
+      }
+    },
+    "secondaryVnetDefinition": {
+      "value": {
+        "addressSpace": "192.169.0.0/16",
+        "subnets": [
+          { "enabled": true, "name": "agent-subnet", "addressPrefix": "192.169.0.0/24", "delegation": "Microsoft.app/environments" },
+          { "enabled": true, "name": "pe-subnet", "addressPrefix": "192.169.1.0/24", "privateEndpointNetworkPolicies": "Disabled" },
+            { "enabled": true, "name": "powerplatform-subnet", "addressPrefix": "192.169.5.0/24" },
+            { "enabled": true, "name": "dataingestion-subnet", "addressPrefix": "192.169.7.0/24" }
+        ],
+        "tags": { "networkRole": "secondary" }
+      }
+    },
+    "aiFoundryDefinition": {
+      "value": {
+        "aiModelDeployments": [
+          {
+            "model": { "format": "OpenAI", "name": "gpt-4o", "version": "2024-11-20" },
+            "name": "gpt-4o",
+            "scale": { "capacity": 1, "family": "", "size": "", "tier": "", "type": "Standard" }
+          }
+        ],
+        "aiProjects": [],
+        "aiSearchConfiguration": {},
+        "cosmosDbConfiguration": {},
+        "includeAssociatedResources": true,
+        "keyVaultConfiguration": {},
+        "lock": { "kind": "None", "name": "" },
+        "storageAccountConfiguration": {}
+      }
+    },
+    "jumpVmAdminPassword": { "value": "<StrongP@ssw0rd!>" }
+  }
+}
+```
+
+</details>
+<p>
+
+<details>
+
+<summary>via Bicep parameters file</summary>
+
+```bicep-params
+using 'br/public:avm/ptn/ai-ml/landing-zone:<version>'
+
+param baseName = '<baseName>'
+param deployToggles = {
+  logAnalytics: true
+  appInsights: true
+  containerEnv: true
+  containerRegistry: true
+  containerApps: true
+  cosmosDb: true
+  keyVault: true
+  storageAccount: true
+  searchService: true
+  groundingWithBingSearch: true
+  appConfig: true
+  apiManagement: false
+  applicationGateway: false
+  firewall: false
+  fabricCapacity: true
+  botService: true
+  buildVm: false
+  jumpVm: false
+  virtualNetwork: true
+  secondaryVirtualNetwork: true
+  enterprisePolicy: true
+  wafPolicy: false
+}
+param fabricCapacityDefinition = {
+  name: ''
+  skuName: 'F4'
+  administrators: [ '<aadObjectId1>' '<aadObjectId2>' ]
+  tags: { environment: 'dev', workload: 'fabric' }
+}
+param botServiceDefinition = {
+  name: ''
+  skuName: 'F0'
+  enabledChannels: [ 'MsTeamsChannel' ]
+  tags: { environment: 'dev', workload: 'bot' }
+}
+param botServiceAppId = '<entra-app-client-id-guid>'
+param botServiceEndpoint = 'https://placeholder.invalid/'
+param enterprisePolicyDefinition = {
+  name: ''
+  virtualNetworks: []
+  tags: { environment: 'dev', workload: 'powerplatform' }
+}
+param vnetDefinition = {
+  addressSpace: '192.168.0.0/16'
+  subnets: [
+    { enabled: true, name: 'agent-subnet', addressPrefix: '192.168.0.0/24', delegation: 'Microsoft.app/environments' }
+    { enabled: true, name: 'pe-subnet', addressPrefix: '192.168.1.0/24', privateEndpointNetworkPolicies: 'Disabled' }
+    { enabled: true, name: 'powerplatform-subnet', addressPrefix: '192.168.5.0/24' }
+    { enabled: true, name: 'dataingestion-subnet', addressPrefix: '192.168.7.0/24' }
+  ]
+  tags: { networkRole: 'primary' }
+}
+param secondaryVnetDefinition = {
+  addressSpace: '192.169.0.0/16'
+  subnets: [
+    { enabled: true, name: 'agent-subnet', addressPrefix: '192.169.0.0/24', delegation: 'Microsoft.app/environments' }
+    { enabled: true, name: 'pe-subnet', addressPrefix: '192.169.1.0/24', privateEndpointNetworkPolicies: 'Disabled' }
+    { enabled: true, name: 'powerplatform-subnet', addressPrefix: '192.169.5.0/24' }
+    { enabled: true, name: 'dataingestion-subnet', addressPrefix: '192.169.7.0/24' }
+  ]
+  tags: { networkRole: 'secondary' }
+}
+param aiFoundryDefinition = {
+  aiModelDeployments: [
+    {
+      model: { format: 'OpenAI', name: 'gpt-4o', version: '2024-11-20' }
+      name: 'gpt-4o'
+      scale: { capacity: 1, family: '', size: '', tier: '', type: 'Standard' }
+    }
+  ]
+  aiProjects: []
+  aiSearchConfiguration: {}
+  cosmosDbConfiguration: {}
+  includeAssociatedResources: true
+  keyVaultConfiguration: {}
+  lock: { kind: 'None', name: '' }
+  storageAccountConfiguration: {}
+}
+param jumpVmAdminPassword = '<StrongP@ssw0rd!>'
+```
+
+</details>
+<p>
+
+#### Reuse Scenario (Existing Enterprise Policy)
+
+If an Enterprise Policy already exists (e.g., created centrally), reuse it:
+
+```bicep-params
+param resourceIds = {
+  enterprisePolicyResourceId: '/subscriptions/<subId>/resourceGroups/<rgName>/providers/Microsoft.PowerPlatform/enterprisePolicies/<policyName>'
+}
+param deployToggles = union(deployToggles, { enterprisePolicy: true }) // toggle can stay true; creation suppressed due to supplied ID
+```
+
+Or in JSON parameters file:
+
+```json
+"resourceIds": {
+  "value": {
+    "enterprisePolicyResourceId": "/subscriptions/<subId>/resourceGroups/<rgName>/providers/Microsoft.PowerPlatform/enterprisePolicies/<policyName>"
+  }
+}
+```
+
+
+
 ## Parameters
 
 **Required parameters**
@@ -653,6 +1187,10 @@ param jumpVmAdminPassword = '<StrongP@ssw0rd!>'
 | [`searchDefinition`](#parameter-searchdefinition) | object |  Azure AI Search configuration for the GenAI app (used when Search is deployed). |
 | [`storageAccountDefinition`](#parameter-storageaccountdefinition) | object |  Storage Account configuration for the GenAI app (used when Storage is deployed). |
 | [`wafPolicyDefinition`](#parameter-wafpolicydefinition) | object |  Web Application Firewall (WAF) policy configuration (required when Application Gateway with WAF is deployed). |
+| [`secondaryVnetDefinition`](#parameter-secondaryvnetdefinition) | object |  Secondary Virtual Network configuration (created in addition to the primary VNet). |
+| [`fabricCapacityDefinition`](#parameter-fabriccapacitydefinition) | object |  Microsoft Fabric capacity configuration (used when Fabric capacity is deployed). |
+| [`botServiceDefinition`](#parameter-botservicedefinition) | object |  Azure Bot Service configuration (used when Bot Service is deployed). |
+| [`enterprisePolicyDefinition`](#parameter-enterprisepolicydefinition) | object |  Power Platform Enterprise Policy (NetworkInjection) configuration. |
 
 **Optional parameters**
 
@@ -690,6 +1228,7 @@ param jumpVmAdminPassword = '<StrongP@ssw0rd!>'
 
 - Required: No
 - Type: object
+- Note: When also deploying a secondary VNet, ensure address spaces do not overlap.
 - Default:
   ```Bicep
   {
@@ -752,6 +1291,16 @@ param jumpVmAdminPassword = '<StrongP@ssw0rd!>'
           addressPrefix: '192.168.4.96/27'
           enabled: true
           name: 'devops-build-agents-subnet'
+        }
+        {
+          addressPrefix: '192.168.5.0/24'
+          enabled: true
+          name: 'powerplatform-subnet'
+        }
+        {
+          addressPrefix: '192.168.6.0/24'
+          enabled: true
+          name: 'powerbi-subnet'
         }
       ]
       tags: {}
@@ -828,6 +1377,18 @@ Subnet name.
 
 - Required: Yes
 - Type: string
+
+**Additional predefined subnets added**
+
+The template now includes two additional optional /24 subnets in both the primary and secondary VNets:
+
+| Subnet Name | Typical Purpose (suggested) | Primary CIDR | Secondary CIDR |
+| :-- | :-- | :-- | :-- |
+| `powerplatform-subnet` | Integration / connectors / future Power Platform landing components | `192.168.5.0/24` | `192.169.5.0/24` |
+| `powerbi-subnet` | Data visualization, embedded analytics, and Virtual Network Data Gateways (e.g., for Power BI / Fabric connectivity) | `192.168.6.0/24` | `192.169.6.0/24` |
+| `dataingestion-subnet` | Microsoft Fabric / analytical batch & streaming data ingestion services isolation | `192.168.7.0/24` | `192.169.7.0/24` |
+
+You may disable them by setting `enabled: false` or adjust CIDRs to fit corporate IPAM allocations (ensure no overlap). When reusing an existing VNet (future enhancement), these subnets must already exist or be removed from the parameter set. The `powerbi-subnet` explicitly supports deployment of Virtual Network Data Gateways. The `dataingestion-subnet` is intended for isolating Fabric ingestion workloads (e.g., pipelines, dataflows) away from interactive or application tiers.
 
 ### Parameter: `vnetDefinition.subnets.delegation`
 
@@ -4831,6 +5392,98 @@ Whether zone redundancy is enabled in the region.
 
 - Required: No
 - Type: object
+
+### Parameter: `secondaryVnetDefinition`
+
+ Secondary Virtual Network configuration (created in addition to the primary VNet).
+
+- Required: No
+- Type: object
+- Default:
+  ```Bicep
+  {
+      name: ''
+      addressSpace: '192.169.0.0/16'
+      dnsServers: []
+      subnets: []
+      tags: {}
+  }
+  ```
+- Note: Must not overlap with the primary VNet address space (or any peered networks) to avoid routing conflicts.
+
+**Required parameters**
+
+| Parameter | Type | Description |
+| :-- | :-- | :-- |
+| [`addressSpace`](#parameter-secondaryvnetdefinitionaddressspace) | string | CIDR address space for the secondary VNet (non-overlapping). |
+| [`subnets`](#parameter-secondaryvnetdefinitionsubnets) | array | Subnet definitions for the secondary VNet. |
+
+**Optional parameters**
+
+| Parameter | Type | Description |
+| :-- | :-- | :-- |
+| [`name`](#parameter-secondaryvnetdefinitionname) | string | Secondary VNet name (deterministic name generated if empty). |
+| [`ddosProtectionPlanResourceId`](#parameter-secondaryvnetdefinitionddosprotectionplanresourceid) | string | Existing DDoS Protection Plan resource ID. |
+| [`dnsServers`](#parameter-secondaryvnetdefinitiondnsservers) | array | Custom DNS servers. |
+| [`vnetPeeringConfiguration`](#parameter-secondaryvnetdefinitionvnetpeeringconfiguration) | object | Hub/spoke peering configuration. |
+| [`vwanHubPeeringConfiguration`](#parameter-secondaryvnetdefinitionvwanhubpeeringconfiguration) | object | Virtual WAN hub peering configuration. |
+| [`tags`](#parameter-secondaryvnetdefinitiontags) | object | Tags to apply to the secondary VNet. |
+
+### Parameter: `secondaryVnetDefinition.addressSpace`
+
+CIDR address space for the secondary VNet (must not overlap with other VNets).
+
+- Required: Yes
+- Type: string
+
+### Parameter: `secondaryVnetDefinition.subnets`
+
+Subnet definitions for the secondary VNet.
+
+- Required: Yes
+- Type: array
+
+### Parameter: `secondaryVnetDefinition.name`
+
+Secondary VNet name (deterministic name generated if empty).
+
+- Required: No
+- Type: string
+
+### Parameter: `secondaryVnetDefinition.ddosProtectionPlanResourceId`
+
+Existing DDoS Protection Plan resource ID.
+
+- Required: No
+- Type: string
+
+### Parameter: `secondaryVnetDefinition.dnsServers`
+
+Custom DNS servers.
+
+- Required: No
+- Type: array
+
+### Parameter: `secondaryVnetDefinition.vnetPeeringConfiguration`
+
+Hub/spoke peering configuration.
+
+- Required: No
+- Type: object
+
+### Parameter: `secondaryVnetDefinition.vwanHubPeeringConfiguration`
+
+Virtual WAN hub peering configuration.
+
+- Required: No
+- Type: object
+
+### Parameter: `secondaryVnetDefinition.tags`
+
+Tags to apply to the secondary VNet.
+
+- Required: No
+- Type: object
 - Default:
   ```Bicep
   {
@@ -4898,6 +5551,222 @@ Azure Firewall name.
 Tags to apply to the firewall.
 
 - Required: Yes
+- Type: object
+
+### Parameter: `fabricCapacityDefinition`
+
+ Microsoft Fabric capacity configuration (used when Fabric capacity is deployed).
+
+- Required: No
+- Type: object
+- Default:
+  ```Bicep
+  {
+      name: ''
+      skuName: 'F2'
+      administrators: []
+      tags: {}
+  }
+  ```
+
+**Required parameters**
+
+| Parameter | Type | Description |
+| :-- | :-- | :-- |
+| [`skuName`](#parameter-fabriccapacitydefinitionskuname) | string | SKU name for the Fabric capacity (e.g., F2, F4, F8). |
+| [`administrators`](#parameter-fabriccapacitydefinitionadministrators) | array | List of Azure AD object IDs granted as capacity administrators. |
+
+**Optional parameters**
+
+| Parameter | Type | Description |
+| :-- | :-- | :-- |
+| [`name`](#parameter-fabriccapacitydefinitionname) | string | Fabric capacity name (deterministic name generated if empty). |
+| [`tags`](#parameter-fabriccapacitydefinitiontags) | object | Tags to apply to the Fabric capacity. |
+
+### Parameter: `fabricCapacityDefinition.skuName`
+
+SKU name for the Fabric capacity (e.g., F2, F4, F8).
+
+- Required: Yes
+- Type: string
+
+### Parameter: `fabricCapacityDefinition.administrators`
+
+List of Azure AD object IDs granted as capacity administrators.
+
+- Required: Yes
+- Type: array
+
+### Parameter: `fabricCapacityDefinition.name`
+
+Fabric capacity name (deterministic name generated if empty).
+
+- Required: No
+- Type: string
+
+### Parameter: `fabricCapacityDefinition.tags`
+### Parameter: `botServiceDefinition`
+
+Conditional. Azure Bot Service configuration used to expose Azure AI Foundry Agents (or other application logic) to standard channels such as Microsoft Teams or M365 Copilot. Follows the same create vs reuse pattern as other services.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| [`name`](#parameter-botservicedefinitionname) | string | Optional. Bot Service name (deterministic name generated if empty). |
+| [`skuName`](#parameter-botservicedefinitionskuname) | string | Required. Bot Service SKU (F0 or S1). |
+| [`enabledChannels`](#parameter-botservicedefinitionenabledchannels) | array | Optional. List of channel resource names to enable (currently omitted in initial module wiring until channel schema constraints resolved; will default to empty create). |
+| [`tags`](#parameter-botservicedefinitiontags) | object | Optional. Tags to apply to the bot service. |
+
+> NOTE: Application (Entra ID) registration creation is deferred until Graph Bicep extension enablement. Supply an existing application (client) ID using parameter `botServiceAppId` when creating a new Bot Service. If reusing an existing Bot Service via `resourceIds.botServiceResourceId`, that parameter is ignored.
+
+### Parameter: `botServiceDefinition.name`
+Optional bot name override; if omitted a deterministic name using the `bot` abbreviation and `baseName` is generated.
+
+### Parameter: `botServiceDefinition.skuName`
+SKU for the bot service. Allowed values in current implementation: `F0`, `S1`.
+
+### Parameter: `botServiceDefinition.enabledChannels`
+Optional array of channel resource type identifiers (e.g., `MsTeamsChannel`). Channel creation is temporarily disabled in the main integration pending safe access lint resolution; future update will wire this array into the module.
+
+### Parameter: `botServiceDefinition.tags`
+
+### Parameter: `enterprisePolicyDefinition`
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| [`name`](#parameter-enterprisepolicydefinitionname) | string | Optional. Enterprise Policy name (deterministic name generated if empty). |
+| [`virtualNetworks`](#parameter-enterprisepolicydefinitionvirtualnetworks) | array | Optional. Explicit list of virtual networks to inject (each entry: id, subnetName). If empty, the template infers the primary (and secondary, if deployed) `powerplatform-subnet`. |
+| [`tags`](#parameter-enterprisepolicydefinitiontags) | object | Optional. Tags to apply to the enterprise policy. |
+
+### Parameter: `enterprisePolicyDefinition.name`
+Optional. Enterprise Policy name. If omitted, a deterministic name using the abbreviation `ppep` plus the `baseName` token is generated.
+
+### Parameter: `enterprisePolicyDefinition.virtualNetworks`
+Optional. Provide when you need full control over which VNets/subnets are injected. Shape:
+
+```bicep
+enterprisePolicyDefinition: {
+  virtualNetworks: [
+    {
+      id: '/subscriptions/<subId>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>'
+      subnetName: 'powerplatform-subnet'
+    }
+  ]
+}
+```
+
+If omitted or empty, the deployment automatically injects:
+- The primary VNet `powerplatform-subnet` (create or reuse path)
+- The secondary VNet `powerplatform-subnet` when `secondaryVirtualNetwork` toggle is true
+
+Ensure those subnets are delegated to `Microsoft.PowerPlatform/enterprisePolicies` (see Azure docs) prior to linking environments.
+
+### Parameter: `enterprisePolicyDefinition.tags`
+Optional. Tags applied to the enterprise policy resource.
+
+#### Deployment Toggle
+Set `deployToggles.enterprisePolicy` to true to create a new Enterprise Policy (when `resourceIds.enterprisePolicyResourceId` is empty). Reuse path: supply the existing resource ID in `resourceIds.enterprisePolicyResourceId` (toggle value is ignored, consistent with other services).
+
+#### Reuse Path Example
+```bicep
+param resourceIds = {
+  enterprisePolicyResourceId: '/subscriptions/<subId>/resourceGroups/<rg>/providers/Microsoft.PowerPlatform/enterprisePolicies/<name>'
+  // ... other ids
+}
+```
+
+#### Create Path Minimal Example
+```bicep
+param deployToggles = {
+  enterprisePolicy: true
+  // other toggles...
+}
+
+param enterprisePolicyDefinition = {
+  name: ''          // let template derive ppep-<token>
+  virtualNetworks: [] // infer primary (and secondary) subnets
+  tags: { workload: 'powerplatform' }
+}
+```
+
+#### Outputs
+| Output | Description |
+| ------ | ----------- |
+| `enterprisePolicyResourceId` | Resource ID of the Enterprise Policy (create or reuse). |
+| `enterprisePolicyName` | Name of the Enterprise Policy (create or reuse). |
+
+#### Prerequisites
+1. VNet subnets you plan to inject must exist and be delegated to `Microsoft.PowerPlatform/enterprisePolicies`.
+2. Two regions may be required depending on your Power Platform environment geo—create/delegate paired VNets accordingly.
+3. The Enterprise Policy can be referenced by multiple managed environments after creation.
+
+#### Notes
+The template assigns a system-assigned managed identity to the enterprise policy (required for platform operations). Encryption, Lockbox, and PrivateEndpoint kinds are not currently parameterized here; only `NetworkInjection` is in scope.
+Optional tags merged with global tags.
+
+### Parameter: `botServiceAppId`
+Separate string parameter (not inside the definition object) providing an existing Entra ID application (client) ID that the Bot Service will bind as `msaAppId`. Required on create path until Graph extension support is added.
+
+### Deploy Toggle: `deployToggles.botService`
+Controls whether a new Bot Service is deployed (create path) when no `resourceIds.botServiceResourceId` is supplied. Reuse path still functions if you provide `resourceIds.botServiceResourceId` while setting the toggle to true (toggle must be true for outputs to populate on create path). Set to false to skip creation entirely.
+
+### Resource Reuse: `resourceIds.botServiceResourceId`
+Provide an existing Bot Service resource ID to reuse (skips creation). Outputs will expose the reused ID and name.
+
+### Outputs (Bot Service)
+| Output | Description |
+|--------|-------------|
+| `botServiceResourceId` | ID of newly created or reused Bot Service. |
+| `botServiceName` | Name of the Bot Service (created or existing). |
+| `botServiceSkuName` | SKU used for the Bot Service. |
+| `botServiceAppId` | Provided Entra application (client) ID associated with the bot (blank on reuse if not supplied). |
+
+### Example: Creating a Bot Service (Teams channel later)
+
+```bicep
+param botServiceDefinition object = {
+  name: ''
+  skuName: 'F0'
+  // enabledChannels will be supported in a subsequent update
+  tags: {
+    workload: 'genai'
+  }
+}
+
+@description('Existing Entra app registration (client) ID pre-created to authorize the bot.')
+param botServiceAppId string = '00000000-0000-0000-0000-000000000000'
+
+param deployToggles object = {
+  botService: true
+  // ...other toggles
+}
+```
+
+### Example: Reusing an Existing Bot Service
+
+```bicep
+param resourceIds object = {
+  botServiceResourceId: '/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.BotService/botServices/myExistingBot'
+  // ...other resourceIds
+}
+
+param deployToggles object = {
+  botService: true
+  // ...other toggles
+}
+
+// botServiceAppId may be left empty on reuse if already bound.
+param botServiceAppId string = ''
+```
+
+### Prerequisites
+- An Entra ID application registration must exist prior to create path (supply its client ID via `botServiceAppId`).
+- Deployment identity requires permission to read the provided application (generally `Application.Read.All`).
+- To enable Teams (MsTeamsChannel) or other channels later, update the bot module endpoint and channel list after resolving channel provisioning lint constraints.
+
+
+Tags to apply to the Fabric capacity.
+
+- Required: No
 - Type: object
 
 **Required parameters**
@@ -7905,6 +8774,8 @@ Container App resource name.
 | [`containerRegistry`](#parameter-deploytogglescontainerregistry) | bool | Toggle to deploy Azure Container Registry (true) or not (false). |
 | [`cosmosDb`](#parameter-deploytogglescosmosdb) | bool | Toggle to deploy Cosmos DB (true) or not (false). |
 | [`firewall`](#parameter-deploytogglesfirewall) | bool | Toggle to deploy Azure Firewall (true) or not (false). |
+| [`fabricCapacity`](#parameter-deploytogglesfabriccapacity) | bool | Toggle to deploy Microsoft Fabric capacity (true) or not (false). |
+| [`secondaryVirtualNetwork`](#parameter-deploytogglessecondaryvirtualnetwork) | bool | Toggle to deploy a secondary Virtual Network (true) or not (false). |
 | [`jumpVm`](#parameter-deploytogglesjumpvm) | bool | Toggle to deploy Jump VM (true) or not (false). |
 | [`keyVault`](#parameter-deploytoggleskeyvault) | bool | Toggle to deploy Key Vault (true) or not (false). |
 | [`logAnalytics`](#parameter-deploytogglesloganalytics) | bool | Toggle to deploy Log Analytics (true) or not (false). |
@@ -7986,6 +8857,20 @@ Toggle to deploy Cosmos DB (true) or not (false).
 ### Parameter: `deployToggles.firewall`
 
 Toggle to deploy Azure Firewall (true) or not (false).
+
+- Required: Yes
+- Type: bool
+
+### Parameter: `deployToggles.fabricCapacity`
+
+Toggle to deploy Microsoft Fabric capacity (true) or not (false).
+
+- Required: Yes
+- Type: bool
+
+### Parameter: `deployToggles.secondaryVirtualNetwork`
+
+Toggle to deploy a secondary Virtual Network (true) or not (false).
 
 - Required: Yes
 - Type: bool

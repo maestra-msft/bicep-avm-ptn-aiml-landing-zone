@@ -80,6 +80,9 @@ param resourceIds types.ResourceIdsType = {
   bastionHostResourceId: ''
   firewallResourceId: ''
   groundingServiceResourceId: ''
+  fabricCapacityResourceId: ''
+  botServiceResourceId: ''
+  enterprisePolicyResourceId: ''
 }
 
 // 1.4 Deploy Toggles (per-service on/off; reuse still works via resourceIds)
@@ -102,10 +105,14 @@ param deployToggles types.DeployTogglesType = {
   apiManagement: true
   applicationGateway: true
   firewall: true
+  fabricCapacity: true
+  botService: true
+  enterprisePolicy: true
 
   buildVm: true
   jumpVm: true
   virtualNetwork: true
+  secondaryVirtualNetwork: true
   wafPolicy: true
 }
 
@@ -168,6 +175,21 @@ param vnetDefinition types.VNetDefinitionType = {
       name: 'devops-build-agents-subnet'
       addressPrefix: '192.168.4.96/27'
     }
+    {
+      enabled: true
+      name: 'powerplatform-subnet'
+      addressPrefix: '192.168.5.0/24'
+    }
+    {
+      enabled: true
+      name: 'powerbi-subnet'
+      addressPrefix: '192.168.6.0/24'
+    }
+    {
+      enabled: true
+      name: 'dataingestion-subnet'
+      addressPrefix: '192.168.7.0/24'
+    }
   ]
 
   // vnetPeeringConfiguration: {
@@ -190,6 +212,83 @@ param vnetDefinition types.VNetDefinitionType = {
   //   peerVwanHubResourceId: ''
   // }
 
+  tags: {}
+}
+
+// 1.5.1b Secondary Virtual Network
+@description('Optional. Secondary Virtual Network configuration (created in addition to primary VNet).')
+param secondaryVnetDefinition types.VNetDefinitionType = {
+  name: ''
+  addressSpace: '192.169.0.0/16'
+  dnsServers: []
+  subnets: [
+    {
+      enabled: true
+      name: 'agent-subnet'
+      addressPrefix: '192.169.0.0/24'
+      delegation: 'Microsoft.app/environments'
+      serviceEndpoints: ['Microsoft.CognitiveServices']
+    }
+    {
+      enabled: true
+      name: 'pe-subnet'
+      addressPrefix: '192.169.1.0/24'
+      serviceEndpoints: ['Microsoft.AzureCosmosDB']
+      privateEndpointNetworkPolicies: 'Disabled'
+    }
+    {
+      enabled: true
+      name: 'gateway-subnet'
+      addressPrefix: '192.169.2.0/26'
+    }
+    {
+      enabled: true
+      name: 'AzureBastionSubnet'
+      addressPrefix: '192.169.2.64/26'
+    }
+    {
+      enabled: true
+      name: 'AzureFirewallSubnet'
+      addressPrefix: '192.169.2.128/26'
+    }
+    {
+      enabled: true
+      name: 'AppGatewaySubnet'
+      addressPrefix: '192.169.3.0/24'
+    }
+    {
+      enabled: true
+      name: 'jumpbox-subnet'
+      addressPrefix: '192.169.4.0/27'
+    }
+    {
+      enabled: true
+      name: 'aca-environment-subnet'
+      addressPrefix: '192.169.4.64/27'
+      delegation: 'Microsoft.app/environments'
+      serviceEndpoints: ['Microsoft.AzureCosmosDB']
+    }
+    {
+      enabled: true
+      name: 'devops-build-agents-subnet'
+      addressPrefix: '192.169.4.96/27'
+    }
+    {
+      enabled: true
+      name: 'powerplatform-subnet'
+      addressPrefix: '192.169.5.0/24'
+    }
+    {
+      enabled: true
+      name: 'powerbi-subnet'
+      addressPrefix: '192.169.6.0/24'
+    }
+    {
+      enabled: true
+      name: 'dataingestion-subnet'
+      addressPrefix: '192.169.7.0/24'
+    }
+  ]
   tags: {}
 }
 
@@ -560,6 +659,37 @@ param bastionKeyVaultDefinition types.KeyVaultDefinitionType = {
   tags: {}
 }
 
+// 1.5.24 Microsoft Fabric Capacity
+@description('Conditional.  Microsoft Fabric capacity configuration (used when Fabric capacity is deployed).')
+param fabricCapacityDefinition types.FabricCapacityDefinitionType = {
+  name: ''
+  skuName: 'F2'
+  administrators: []
+  tags: {}
+}
+
+// 1.5.25 Azure Bot Service
+@description('Conditional. Azure Bot Service configuration (used when Bot Service is deployed).')
+param botServiceDefinition types.BotServiceDefinitionType = {
+  name: ''
+  skuName: 'F0'
+  enabledChannels: [ 'MsTeamsChannel' ]
+  tags: {}
+}
+
+@description('Conditional. Existing Entra ID application (client) ID to associate with the Bot Service (msaAppId). Required when creating a new Bot Service (ignored on reuse path).')
+param botServiceAppId string = ''
+@description('Optional. Bot Service messaging endpoint (https URL). Provide placeholder if not yet available.')
+param botServiceEndpoint string = 'https://placeholder.invalid/'
+
+// 1.5.26 Power Platform Enterprise Policy (Network Injection)
+@description('Conditional. Power Platform Enterprise Policy configuration (NetworkInjection).')
+param enterprisePolicyDefinition types.EnterprisePolicyDefinitionType = {
+  name: ''
+  virtualNetworks: []
+  tags: {}
+}
+
 // 1.6 Secrets/Tokens
 @secure()
 @description('Conditional. Required when deploying Jump VM. Local admin password to set on the Windows JumpVM.')
@@ -604,12 +734,14 @@ var _ai = '${_abbrs.managementGovernance.applicationInsights}-'
 var _apim = '${_abbrs.integration.apiManagement}-'
 var _appcs = '${_abbrs.configuration.appConfiguration}-'
 var _law = '${_abbrs.managementGovernance.logAnalyticsWorkspace}-'
+var _bot = '${_abbrs.ai.botService}-'
 var _cos = '${_abbrs.databases.cosmosDbAccount}-'
 var _kv = '${_abbrs.security.keyVault}-'
 var _srch = '${_abbrs.ai.aiSearch}-'
 var _st = _abbrs.storage.storageAccount // no hyphen allowed in Storage
 var _vm = '${_abbrs.compute.virtualMachine}-'
 var _waf = '${_abbrs.networking.webApplicationFirewallPolicy}-'
+var _fabric = '${_abbrs.analytics.fabricCapacity}-'
 
 
 // ── 2.2 Common names & defaults (env, images, flags)
@@ -702,6 +834,10 @@ var _buildSubnetId = empty(resourceIds.virtualNetworkResourceId)
   ? resourceId('Microsoft.Network/virtualNetworks/subnets', _vnetName, _buildSubnetName)
   : '${existingVNet.id}/subnets/${_buildSubnetName}'
 
+// Secondary VNet helpers
+var _secondaryVnetName = empty(secondaryVnetDefinition.name!) ? '${_vnet}${baseName}-sec' : secondaryVnetDefinition.name!
+var _deploySecondaryVnet = deployToggles.secondaryVirtualNetwork && !empty(secondaryVnetDefinition.addressSpace)
+
 
 // ── 2.4 Existing resource parsing (IDs → subscription/rg/name)
 var _apimIdSegments = empty(resourceIds.apimServiceResourceId) ? [''] : split(resourceIds.apimServiceResourceId, '/')
@@ -764,6 +900,16 @@ var _existingAppcsSub = length(_appcsIdSegments) >= 3 ? _appcsIdSegments[2] : ''
 var _existingAppcsRg = length(_appcsIdSegments) >= 5 ? _appcsIdSegments[4] : ''
 var _existingAppcsName = length(_appcsIdSegments) >= 1 ? last(_appcsIdSegments) : ''
 
+var _fabricIdSegments = empty(resourceIds.fabricCapacityResourceId) ? [''] : split(resourceIds.fabricCapacityResourceId, '/')
+var _existingFabricSub = length(_fabricIdSegments) >= 3 ? _fabricIdSegments[2] : ''
+var _existingFabricRg = length(_fabricIdSegments) >= 5 ? _fabricIdSegments[4] : ''
+var _existingFabricName = length(_fabricIdSegments) >= 1 ? last(_fabricIdSegments) : ''
+
+var _botIdSegments = empty(resourceIds.botServiceResourceId) ? [''] : split(resourceIds.botServiceResourceId, '/')
+var _existingBotSub = length(_botIdSegments) >= 3 ? _botIdSegments[2] : ''
+var _existingBotRg = length(_botIdSegments) >= 5 ? _botIdSegments[4] : ''
+var _existingBotName = length(_botIdSegments) >= 1 ? last(_botIdSegments) : ''
+
 
 // ── 2.5 Service defaults for create path (compact objects)
 var _cosmosDef = cosmosDbDefinition ?? { name: '' }
@@ -781,6 +927,9 @@ var _appConfigName = empty((appConfigurationDefinition ?? { name: '' }).name!)
 
 var _wafName = empty(wafPolicyDefinition.name!) ? '${_waf}${baseName}' : wafPolicyDefinition.name!
 var _agwName = empty(appGatewayDefinition.name!) ? '${_agw}${baseName}' : appGatewayDefinition.name!
+var _fabricCapacityName = empty(fabricCapacityDefinition.name!) ? '${_fabric}${baseName}' : fabricCapacityDefinition.name!
+var _botServiceName = empty(botServiceDefinition.name!) ? '${_bot}${baseName}' : botServiceDefinition.name!
+var _enterprisePolicyName = empty(enterprisePolicyDefinition.name!) ? '${_abbrs.powerPlatform.enterprisePolicy}-${baseName}' : enterprisePolicyDefinition.name!
 
 // Convenience alias for downstream modules
 var agwName = _agwName
@@ -806,6 +955,14 @@ var _deployAcr = empty(resourceIds.containerRegistryResourceId) && deployGenAiAp
 var _deployApim = empty(resourceIds.apimServiceResourceId) && deployToggles.apiManagement
 var _deployAppGateway = empty(resourceIds.applicationGatewayResourceId) && deployToggles.applicationGateway
 var _deployFirewall = empty(resourceIds.firewallResourceId) && deployToggles.firewall
+var _deployFabricCapacity = empty(resourceIds.fabricCapacityResourceId) && deployToggles.fabricCapacity
+var _deployBotService = empty(resourceIds.botServiceResourceId) && deployToggles.botService
+var _deployEnterprisePolicy = empty(resourceIds.enterprisePolicyResourceId) && deployToggles.enterprisePolicy
+var _enterprisePolicyIdSegments = empty(resourceIds.enterprisePolicyResourceId) ? [''] : split(resourceIds.enterprisePolicyResourceId, '/')
+var _existingEnterprisePolicySub = length(_enterprisePolicyIdSegments) >= 3 ? _enterprisePolicyIdSegments[2] : ''
+var _existingEnterprisePolicyRg = length(_enterprisePolicyIdSegments) >= 5 ? _enterprisePolicyIdSegments[4] : ''
+var _existingEnterprisePolicyName = length(_enterprisePolicyIdSegments) >= 1 ? last(_enterprisePolicyIdSegments) : ''
+// Bot app creation via Graph extension deferred; require botServiceAppId parameter for new bot
 
 var _isPlatformLz = flagPlatformLandingZone
 var _deployPdnsAndPe = networkIsolation && !_isPlatformLz
@@ -1218,6 +1375,27 @@ module virtualNetwork 'br/public:avm/res/network/virtual-network:0.7.0' = if (_d
           }
         ]
       : []
+  }
+}
+
+// Secondary VNet (always deployed when definition provided; no reuse logic yet)
+module secondaryVirtualNetwork 'br/public:avm/res/network/virtual-network:0.7.0' = if (_deploySecondaryVnet) {
+  name: 'secondaryVirtualNetworkDeployment'
+  params: {
+    name: _secondaryVnetName
+    location: location
+    tags: union(tags, secondaryVnetDefinition.tags! ?? {})
+    addressPrefixes: [secondaryVnetDefinition.addressSpace]
+    dnsServers: secondaryVnetDefinition.dnsServers!
+    enableTelemetry: enableTelemetry
+    subnets: [
+      for s in secondaryVnetDefinition.subnets: {
+        name: s.name
+        addressPrefix: s.addressPrefix
+        ...(contains(s, 'delegation') && !empty(s.delegation!) ? { delegation: s.delegation! } : {})
+        ...(contains(s, 'serviceEndpoints') && !empty(s.serviceEndpoints!) ? { serviceEndpoints: s.serviceEndpoints! } : {})
+      }
+    ]
   }
 }
 
@@ -2486,7 +2664,6 @@ module bingSearch 'modules/bing-search/main.bicep' = if (_invokeBingModule) {
 
     // Deterministic default for the Bing account (only used on create path)
     bingSearchName: _bingNameEffective
-
     // Reuse path: when provided, the child module will NOT create the Bing account,
     // it will use this existing one and still create the connection.
     existingResourceId: resourceIds.groundingServiceResourceId
@@ -2494,6 +2671,110 @@ module bingSearch 'modules/bing-search/main.bicep' = if (_invokeBingModule) {
   dependsOn: [
     aiFoundry!
   ]
+}
+
+// ─────────────────────────────────────────────────────────────────────-
+// 3.14 Microsoft Fabric Capacity
+// ─────────────────────────────────────────────────────────────────────-
+resource existingFabricCapacity 'Microsoft.Fabric/capacities@2023-11-01' existing = if (!empty(resourceIds.fabricCapacityResourceId)) {
+  name: _existingFabricName
+  scope: resourceGroup(_existingFabricSub, _existingFabricRg)
+}
+
+// ─────────────────────────────────────────────────────────────────────-
+// 3.15 Azure Bot Service (for publishing AI Foundry Agents to channels)
+// ─────────────────────────────────────────────────────────────────────-
+resource existingBotService 'Microsoft.BotService/botServices@2022-09-15' existing = if (!empty(resourceIds.botServiceResourceId)) {
+  name: _existingBotName
+  scope: resourceGroup(_existingBotSub, _existingBotRg)
+}
+
+module botServiceModule './modules/bot-service/main.bicep' = if (_deployBotService) {
+  name: 'botService'
+  params: {
+    name: _botServiceName
+    location: location
+    skuName: botServiceDefinition.skuName
+    // channels omitted pending stable optional property handling
+    msaAppId: botServiceAppId
+    endpoint: botServiceEndpoint
+    tags: union(_tags, botServiceDefinition.tags! ?? {})
+  }
+}
+
+// 3.16 Power Platform Enterprise Policy (NetworkInjection)
+resource existingEnterprisePolicy 'Microsoft.PowerPlatform/enterprisePolicies@2020-10-30-preview' existing = if (!empty(resourceIds.enterprisePolicyResourceId)) {
+  name: _existingEnterprisePolicyName
+  scope: resourceGroup(_existingEnterprisePolicySub, _existingEnterprisePolicyRg)
+}
+
+// Compile-time safe primary VNet id (avoid module output for for-expression start-time evaluation)
+var _enterprisePolicyPrimaryVnetId = empty(resourceIds.virtualNetworkResourceId)
+  ? resourceId('Microsoft.Network/virtualNetworks', _vnetName)
+  : resourceIds.virtualNetworkResourceId
+
+// Derive virtualNetworks array: use provided list when not empty, otherwise infer primary (and secondary if deployed)
+var _epUserVnets = (length(enterprisePolicyDefinition.virtualNetworks ?? []) > 0) ? (enterprisePolicyDefinition.virtualNetworks ?? []) : []
+var _epInferredVnets = length(_epUserVnets) > 0
+  ? _epUserVnets
+  : concat(
+      [
+        {
+          id: _enterprisePolicyPrimaryVnetId
+          subnetName: 'powerplatform-subnet'
+        }
+      ],
+      _deploySecondaryVnet
+        ? [
+            {
+              id: resourceId('Microsoft.Network/virtualNetworks', _secondaryVnetName)
+              subnetName: 'powerplatform-subnet'
+            }
+          ]
+        : []
+    )
+
+resource enterprisePolicy 'Microsoft.PowerPlatform/enterprisePolicies@2020-10-30-preview' = if (_deployEnterprisePolicy) {
+  name: _enterprisePolicyName
+  location: location
+  kind: 'NetworkInjection'
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    networkInjection: {
+      virtualNetworks: [
+        for vn in _epInferredVnets: {
+          id: vn.id
+          subnet: {
+            name: vn.subnetName
+          }
+        }
+      ]
+    }
+  }
+  tags: union(_tags, enterprisePolicyDefinition.tags! ?? {})
+  dependsOn: [
+    #disable-next-line BCP321
+    (empty(resourceIds.virtualNetworkResourceId)) ? virtualNetwork : null
+    #disable-next-line BCP321
+    (_deploySecondaryVnet) ? secondaryVirtualNetwork : null
+  ]
+}
+
+resource fabricCapacity 'Microsoft.Fabric/capacities@2023-11-01' = if (_deployFabricCapacity) {
+  name: _fabricCapacityName
+  location: location
+  sku: {
+    name: fabricCapacityDefinition.skuName
+    tier: 'Fabric'
+  }
+  properties: {
+    administration: {
+      members: fabricCapacityDefinition.administrators
+    }
+  }
+  tags: union(_tags, fabricCapacityDefinition.tags! ?? {})
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2511,6 +2792,22 @@ output virtualNetworkResourceId string = empty(resourceIds.virtualNetworkResourc
   #disable-next-line BCP318
   ? virtualNetwork.outputs.resourceId
   : existingVNet.id
+// New primary VNet subnets
+output powerPlatformSubnetResourceId string = empty(resourceIds.virtualNetworkResourceId)
+  ? resourceId('Microsoft.Network/virtualNetworks/subnets', _vnetName, 'powerplatform-subnet')
+  : (!empty(resourceIds.virtualNetworkResourceId) ? '${existingVNet.id}/subnets/powerplatform-subnet' : '')
+output powerBiSubnetResourceId string = empty(resourceIds.virtualNetworkResourceId)
+  ? resourceId('Microsoft.Network/virtualNetworks/subnets', _vnetName, 'powerbi-subnet')
+  : (!empty(resourceIds.virtualNetworkResourceId) ? '${existingVNet.id}/subnets/powerbi-subnet' : '')
+
+// Secondary VNet
+#disable-next-line BCP318
+output secondaryVirtualNetworkResourceId string = _deploySecondaryVnet ? secondaryVirtualNetwork.outputs.resourceId : ''
+output secondaryVirtualNetworkName string = _deploySecondaryVnet ? _secondaryVnetName : ''
+output secondaryPowerPlatformSubnetResourceId string = _deploySecondaryVnet ? resourceId('Microsoft.Network/virtualNetworks/subnets', _secondaryVnetName, 'powerplatform-subnet') : ''
+output secondaryPowerBiSubnetResourceId string = _deploySecondaryVnet ? resourceId('Microsoft.Network/virtualNetworks/subnets', _secondaryVnetName, 'powerbi-subnet') : ''
+
+// Secondary VNet subnet IDs output omitted (loop syntax not supported in this environment)
 
 // Log Analytics
 output logAnalyticsWorkspaceResourceId string = _deployLogAnalytics
@@ -2569,6 +2866,39 @@ output applicationGatewayResourceId string = _deployAppGateway
 output firewallResourceId string = _deployFirewall
   ? resourceId('Microsoft.Network/azureFirewalls', _afwName)
   : existingFirewall.id
+
+// Microsoft Fabric Capacity
+output fabricCapacityResourceId string = _deployFabricCapacity
+  ? resourceId('Microsoft.Fabric/capacities', _fabricCapacityName)
+  : (!empty(resourceIds.fabricCapacityResourceId) ? existingFabricCapacity.id : '')
+output fabricCapacityName string = _deployFabricCapacity
+  ? _fabricCapacityName
+  : (!empty(resourceIds.fabricCapacityResourceId) ? _existingFabricName : '')
+output fabricCapacitySkuName string = (_deployFabricCapacity || !empty(resourceIds.fabricCapacityResourceId))
+  ? fabricCapacityDefinition.skuName
+  : ''
+
+// Azure Bot Service
+output botServiceResourceId string = _deployBotService
+  ? resourceId('Microsoft.BotService/botServices', _botServiceName)
+  : (!empty(resourceIds.botServiceResourceId) ? existingBotService.id : '')
+output botServiceName string = _deployBotService
+  ? _botServiceName
+  : (!empty(resourceIds.botServiceResourceId) ? _existingBotName : '')
+output botServiceSkuName string = (_deployBotService || !empty(resourceIds.botServiceResourceId))
+  ? botServiceDefinition.skuName
+  : ''
+output botServiceAppId string = _deployBotService
+  ? botServiceAppId
+  : (!empty(resourceIds.botServiceResourceId) ? botServiceAppId : '')
+
+// Power Platform Enterprise Policy
+output enterprisePolicyResourceId string = _deployEnterprisePolicy
+  ? resourceId('Microsoft.PowerPlatform/enterprisePolicies', _enterprisePolicyName)
+  : (!empty(resourceIds.enterprisePolicyResourceId) ? existingEnterprisePolicy.id : '')
+output enterprisePolicyName string = _deployEnterprisePolicy
+  ? _enterprisePolicyName
+  : (!empty(resourceIds.enterprisePolicyResourceId) ? _existingEnterprisePolicyName : '')
 
 // Grounding with Bing
 output groundingServiceResourceId string = _invokeBingModule
