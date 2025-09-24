@@ -28,10 +28,12 @@ The **AI layer** centers on **Azure AI Foundry** (account, project, optional mod
 Depending on your toggles and reuse choices, the deployment can include:
 
 * **Core app platform:** Container Apps Environment (internal ILB), Container Apps, ACR
-* **Networking:** Spoke VNet, subnets, Private Endpoints, Private DNS zones (and optional hub peering)
-* **Data & config:** Storage, Key Vault, Cosmos DB, App Configuration, Azure AI Search
+* **Networking:** Spoke VNet, optional **secondary VNet**, subnets (including `powerplatform-subnet`, `powerbi-subnet`, `dataingestion-subnet`), Private Endpoints, Private DNS zones (and optional hub peering)
+* **Data & config:** Storage, Key Vault, Cosmos DB, App Configuration, Azure AI Search, **Microsoft Fabric Capacity (optional)**
 * **Observability:** Log Analytics + Application Insights
 * **Perimeter:** WAF Policy, Application Gateway, API Management, Azure Firewall
+* **Integration / Governance:** **Power Platform Enterprise Policy (NetworkInjection)**
+* **Conversational / Channels:** **Azure Bot Service (optional)**
 * **Operations:** Build VM (Linux) and Jump VM (Windows via Bastion)
 
 ---
@@ -127,14 +129,16 @@ azd provision
 
 ## 5) Resource-by-resource behavior & parameters
 
-### 5.1 Virtual Network (spoke)
+### 5.1 Virtual Network (spoke) & Secondary VNet
 
-Creates (or reuses) a VNet with subnets for **Private Endpoints**, **Container Apps Environment**, optional **Application Gateway**, **Firewall**, **Bastion**, **Jump VM**, and **Build VM**. Optional hub peering supported.
+Creates (or reuses) a **primary VNet** with subnets for **Private Endpoints** (`pe-subnet`), **Container Apps Environment** (`agent-subnet`), optional **Application Gateway**, **Firewall**, **Bastion**, **Jump VM**, **Build VM**, and purpose subnets: `powerplatform-subnet`, `powerbi-subnet`, `dataingestion-subnet`. An optional **secondary VNet** (toggle: `deployToggles.secondaryVirtualNetwork`) can be deployed for isolation, address space growth, regulated workloads, or Power Platform boundary enforcement. No peering is auto-configured.
 
 * **Parameters:**
 
-  * `vnetDefinition` — address space, DNS servers, subnets, optional peering (`vnetPeeringConfiguration` or `vwanHubPeeringConfiguration`).
-  * Reuse with `resourceIds.virtualNetworkResourceId`.
+  * `vnetDefinition` — primary address space, DNS servers, subnets, optional peering (`vnetPeeringConfiguration` or `vwanHubPeeringConfiguration`).
+  * `secondaryVnetDefinition` — structure mirrors primary; active only when toggle enabled.
+  * Reuse with `resourceIds.virtualNetworkResourceId` (primary). Secondary reuse can be added similarly when centrally managed.
+  * Enterprise Policy subnet inference auto-targets each VNet's `powerplatform-subnet` when `enterprisePolicyDefinition.virtualNetworks` is empty.
 
 ### 5.2 Private DNS & Private Endpoints
 
@@ -282,11 +286,39 @@ Depending on your scenario, the networking setup works in two ways:
   * `buildVmDefinition` (size, SSH key, runner details; PATs via secure params)
   * `jumpVmDefinition` (size, admin username, `vmKeyVaultSecName`) and secure `jumpVmAdminPassword`.
 
+### 5.15 Microsoft Fabric Capacity
+
+Provision (or reuse) a Microsoft Fabric capacity for analytics / OneLake scenarios.
+
+* **Toggle:** `deployToggles.fabricCapacity`.
+* **Parameters:** `fabricCapacityDefinition` (`skuName` e.g. `F4`, `administrators[]`, `tags`).
+* **Reuse:** Supply `resourceIds.fabricCapacityResourceId`.
+* **Prereq:** Provider registration `Microsoft.Fabric`.
+
+### 5.16 Azure Bot Service
+
+Deploys an Azure Bot resource (F0/S SKU) linked to a pre-created Entra application you supply via `botServiceAppId`.
+
+* **Toggle:** `deployToggles.botService`.
+* **Parameters:** `botServiceDefinition` (name, `skuName`, `enabledChannels[]`, `tags`), `botServiceAppId`, `botServiceEndpoint`.
+* **Prereq:** Entra application (client ID). Future automation may create it once Graph integration returns.
+* **Channels:** Expand `enabledChannels` post-deployment (e.g., Teams). 
+
+### 5.17 Power Platform Enterprise Policy (NetworkInjection)
+
+Creates (or reuses) an Enterprise Policy to enable Power Platform environment VNet integration.
+
+* **Toggle:** `deployToggles.enterprisePolicy`.
+* **Parameters:** `enterprisePolicyDefinition` (`name`, `virtualNetworks[]`, `tags`).
+* **Inference:** Leave `virtualNetworks` empty to automatically target each deployed VNet's `powerplatform-subnet`.
+* **Reuse:** Supply `resourceIds.enterprisePolicyResourceId` to skip creation.
+* **Prereq:** Provider registration `Microsoft.PowerPlatform`; ensure `powerplatform-subnet` exists in targeted VNets.
+
 ---
 
 ## 6) Examples
 
-All deployment examples are in **[examples.md](./examples.md)**, including greenfield vs. reuse, Foundry variants (with/without Agent Service), perimeter configurations (AGW/WAF/APIM/Firewall), CAE/Container Apps, PDNS reuse/create, and “use this as an AVM module” samples.
+All deployment examples are in **[examples.md](./examples.md)**, including greenfield vs. reuse, Foundry variants (with/without Agent Service), perimeter configurations (AGW/WAF/APIM/Firewall), CAE/Container Apps, PDNS reuse/create, dual VNet scenarios, and an advanced combined scenario (dual VNets + Fabric + Bot + Enterprise Policy).
 
 ---
 
@@ -299,6 +331,11 @@ All deployment examples are in **[examples.md](./examples.md)**, including green
 5. **Jump VM guard:** The Jump VM is deployed **only when** `jumpVmAdminPassword` is provided and you are **not** in platform LZ mode.
 6. **ACR/Storage naming:** Both are global and have naming constraints. If you don’t set names, the template derives valid names from `baseName`.
 7. **App Gateway frontends:** The template provisions a **private** frontend and, optionally, a **public** frontend when `appGatewayDefinition.createPublicFrontend = true`.
+8. **Enterprise Policy inference:** Empty `enterprisePolicyDefinition.virtualNetworks` -> auto-target `powerplatform-subnet` in each VNet.
+9. **Dual VNet isolation:** No automatic peering; plan routing/peering outside this template.
+10. **Fabric capacity admins:** Provide object IDs (users / groups) with required access; groups simplify lifecycle.
+11. **Bot Service prerequisite:** Entra application must exist (bring client ID); secrets not stored here.
+12. **Subnet readiness:** Ensure `powerplatform-subnet` exists in each VNet before enabling Enterprise Policy inference.
 
 ---
 

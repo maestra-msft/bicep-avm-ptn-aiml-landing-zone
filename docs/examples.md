@@ -14,6 +14,7 @@ Use these **parameter snippets** as starting points. Omit anything you do not ne
   * [4.2) Project only — **no Agent Service**, no auto‑deps (BYOR)](#42-project-only--no-agent-service-no-auto-deps-byor)
 * [5) Platform Landing Zone integration (PDNS/PE managed by platform)](#5-platform-landing-zone-integration-pdnspe-managed-by-platform)
 * [6) Use the pattern as an AVM module (in your repo)](#6-use-the-pattern-as-an-avm-module-in-your-repo)
+* [7) Dual VNets + Fabric + Bot + Enterprise Policy (advanced)](#7-dual-vnets--fabric--bot--enterprise-policy-advanced)
 
 ---
 
@@ -235,3 +236,110 @@ module landingZone 'br/public:avm/ptn/aiml-landing-zone:<version>' = {
 ```
 
 > Pin a specific `<version>` and adjust parameters as in the examples above.
+
+---
+
+## 7) Dual VNets + Fabric + Bot + Enterprise Policy (advanced)
+
+End-to-end scenario combining:
+
+* **Primary + Secondary VNet** (segmentation + future growth)
+* **Microsoft Fabric Capacity** (analytics / OneLake workloads)
+* **Azure Bot Service** (F0) bound to an existing Entra application
+* **Power Platform Enterprise Policy** (NetworkInjection) with subnet inference (auto-targets `powerplatform-subnet` in both VNets)
+* **Core GenAI backing services** shared via AI Foundry definition
+
+Prerequisites:
+
+1. Providers registered: `Microsoft.PowerPlatform`, `Microsoft.Fabric`, `Microsoft.BotService` (if not already).
+2. Entra application created; record client ID → `botServiceAppId`.
+3. Non-overlapping CIDRs for primary & secondary VNets.
+
+```json
+{
+  "parameters": {
+    "baseName": { "value": "<baseName>" },
+    "deployToggles": { "value": {
+      "logAnalytics": true,
+      "appInsights": true,
+      "containerEnv": true,
+      "containerRegistry": true,
+      "containerApps": true,
+      "cosmosDb": true,
+      "keyVault": true,
+      "storageAccount": true,
+      "searchService": true,
+      "groundingWithBingSearch": true,
+      "appConfig": true,
+      "apiManagement": false,
+      "applicationGateway": false,
+      "firewall": false,
+      "fabricCapacity": true,
+      "botService": true,
+      "buildVm": false,
+      "jumpVm": false,
+      "virtualNetwork": true,
+      "secondaryVirtualNetwork": true,
+      "enterprisePolicy": true,
+      "wafPolicy": false
+    }},
+    "fabricCapacityDefinition": { "value": {
+      "name": "",
+      "skuName": "F4",
+      "administrators": [ "<aadObjectId1>", "<aadObjectId2>" ],
+      "tags": { "environment": "dev", "workload": "fabric" }
+    }},
+    "botServiceDefinition": { "value": {
+      "name": "",
+      "skuName": "F0",
+      "enabledChannels": [ "MsTeamsChannel" ],
+      "tags": { "environment": "dev", "workload": "bot" }
+    }},
+    "botServiceAppId": { "value": "<entra-app-client-id-guid>" },
+    "botServiceEndpoint": { "value": "https://placeholder.invalid/" },
+    "enterprisePolicyDefinition": { "value": {
+      "name": "",
+      "virtualNetworks": [],
+      "tags": { "environment": "dev", "workload": "powerplatform" }
+    }},
+    "vnetDefinition": { "value": {
+      "addressSpace": "192.168.0.0/16",
+      "subnets": [
+        { "enabled": true, "name": "agent-subnet", "addressPrefix": "192.168.0.0/24", "delegation": "Microsoft.app/environments" },
+        { "enabled": true, "name": "pe-subnet", "addressPrefix": "192.168.1.0/24", "privateEndpointNetworkPolicies": "Disabled" },
+        { "enabled": true, "name": "powerplatform-subnet", "addressPrefix": "192.168.5.0/24" },
+        { "enabled": true, "name": "dataingestion-subnet", "addressPrefix": "192.168.7.0/24" }
+      ],
+      "tags": { "networkRole": "primary" }
+    }},
+    "secondaryVnetDefinition": { "value": {
+      "addressSpace": "192.169.0.0/16",
+      "subnets": [
+        { "enabled": true, "name": "agent-subnet", "addressPrefix": "192.169.0.0/24", "delegation": "Microsoft.app/environments" },
+        { "enabled": true, "name": "pe-subnet", "addressPrefix": "192.169.1.0/24", "privateEndpointNetworkPolicies": "Disabled" },
+        { "enabled": true, "name": "powerplatform-subnet", "addressPrefix": "192.169.5.0/24" },
+        { "enabled": true, "name": "dataingestion-subnet", "addressPrefix": "192.169.7.0/24" }
+      ],
+      "tags": { "networkRole": "secondary" }
+    }},
+    "aiFoundryDefinition": { "value": {
+      "includeAssociatedResources": true,
+      "aiFoundryConfiguration": {
+        "createCapabilityHosts": true,
+        "project": { "name": "proj-${baseName}", "displayName": "AI Project" }
+      },
+      "aiModelDeployments": [
+        { "name": "chat", "model": { "format": "OpenAI", "name": "gpt-4o", "version": "2024-11-20" }, "scale": { "type": "Standard", "capacity": 1 } }
+      ]
+    }},
+    "jumpVmAdminPassword": { "value": "<StrongP@ssw0rd!>" }
+  }
+}
+```
+
+> To **reuse** an existing Enterprise Policy instead of creating one, set:
+> ```json
+> "resourceIds": { "value": { "enterprisePolicyResourceId": "/subscriptions/<subId>/resourceGroups/<rgName>/providers/Microsoft.PowerPlatform/enterprisePolicies/<policyName>" } }
+> ```
+> and optionally disable creation by omitting `enterprisePolicyDefinition` or turning off its toggle.
+
